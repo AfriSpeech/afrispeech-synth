@@ -90,3 +90,23 @@ class GeminiTTS(TTSBackend):
             data = pcm_to_wav(data, mime_type, default_rate=self.config.sample_rate)
         return Clip(audio=data, mime_type="audio/wav", voice=voice,
                     sample_rate=self.config.sample_rate)
+
+    async def generate_text(self, prompt: str, voice: Optional[str] = None) -> str:
+        types = self._types
+        contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
+        try:
+            response = await self._client.aio.models.generate_content(
+                model=self.config.model,
+                contents=contents,
+            )
+            text = response.text or ""
+            if not text and response.candidates:
+                candidate = response.candidates[0]
+                if candidate.content and candidate.content.parts:
+                    text = "".join(p.text for p in candidate.content.parts if p.text)
+            return text.strip()
+        except Exception as exc:
+            message = str(exc).lower()
+            if any(marker in message for marker in RETRYABLE_MARKERS):
+                raise RetryableTTSError(str(exc)) from exc
+            raise TTSError(str(exc)) from exc

@@ -17,7 +17,10 @@ class MockTTS(TTSBackend):
             for i in range(samples)
         )
         return Clip(audio=pcm_to_wav(pcm, f"audio/L16;rate={rate}", rate),
-                    mime_type="audio/wav", sample_rate=rate, voice=voice)
+                    mime_type="audio/wav", sample_rate=rate, voice=voice, text=text)
+
+    async def generate_text(self, prompt: str, voice: str = "Zephyr") -> str:
+        return f"Mock text response for: {prompt}"
 
 
 tts_registry.register("mock", lambda: MockTTS)

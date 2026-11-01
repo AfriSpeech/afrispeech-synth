@@ -158,7 +158,7 @@ async def _one(utterance: Utterance, backend, workspace: Workspace, limiter: Rat
             path = workspace.audio_path(utterance)
             with open(path, "wb") as handle:
                 handle.write(clip.audio)
-            workspace.write(utterance, {
+            record = {
                 "index": utterance.index,
                 "name": utterance.stem,
                 "language": (utterance.language or language).code,
@@ -168,7 +168,10 @@ async def _one(utterance: Utterance, backend, workspace: Workspace, limiter: Rat
                 "audio_path": path,
                 "sample_rate": clip.sample_rate,
                 "bytes": len(clip.audio),
-            })
+            }
+            if clip.text:
+                record["transcript_spoken"] = clip.text
+            workspace.write(utterance, record)
             counters["done"] += 1
             total = counters["total"]
             if counters["done"] % 25 == 0 or counters["done"] == total:

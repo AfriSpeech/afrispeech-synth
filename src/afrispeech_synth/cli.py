@@ -119,6 +119,29 @@ def cmd_card(args) -> int:
     return 0
 
 
+def cmd_text(args) -> int:
+    from .text import generate_text
+    prompt = getattr(args, "prompt", None)
+    if not prompt:
+        if not sys.stdin.isatty():
+            prompt = sys.stdin.read().strip()
+        else:
+            print("error: a prompt argument or piped input is required", file=sys.stderr)
+            return 1
+
+    config = _config_from_args(args) if getattr(args, "config", None) else None
+    result = generate_text(
+        prompt=prompt,
+        config=config,
+        language=getattr(args, "lang", None),
+        backend=getattr(args, "backend", None),
+        model=getattr(args, "model", None),
+        voice=getattr(args, "voice", None),
+    )
+    print(result)
+    return 0
+
+
 STATUS_HELP = {
     "ready": "text + G2P available — just name the language",
     "bring text": "G2P available; supply text with a file: or hf: source",
@@ -287,6 +310,15 @@ def build_parser() -> argparse.ArgumentParser:
                ).set_defaults(func=cmd_push)
     add_common(subparsers.add_parser("card", help="Print the dataset card")
                ).set_defaults(func=cmd_card)
+
+    text_parser = subparsers.add_parser("text", help="Generate text using Gemini or Gemini Live")
+    text_parser.add_argument("prompt", nargs="?", help="Prompt for text generation (or pipe via stdin)")
+    text_parser.add_argument("--config", help="Optional YAML config")
+    text_parser.add_argument("--lang", default="twi", help="Language name or code (default: twi)")
+    text_parser.add_argument("--backend", choices=tts_registry.available(), help="Backend: gemini or gemini-live")
+    text_parser.add_argument("--model", help="Model name (e.g. gemini-3.8-live, gemini-3.1-flash-live-preview)")
+    text_parser.add_argument("--voice", help="Voice for Live session (default: Zephyr)")
+    text_parser.set_defaults(func=cmd_text)
 
     init_parser = subparsers.add_parser("init", help="Write a starter config for a language")
     init_parser.add_argument("lang", help="Language name or code")

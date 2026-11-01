@@ -20,6 +20,7 @@ class Clip:
     mime_type: str
     sample_rate: int
     voice: str
+    text: Optional[str] = None
 
 
 def pcm_to_wav(audio: bytes, mime_type: str, default_rate: int = 24000) -> bytes:
@@ -72,6 +73,9 @@ class TTSBackend:
 
     async def synth(self, text: str, voice: str) -> Clip:
         raise NotImplementedError
+
+    async def generate_text(self, prompt: str, voice: Optional[str] = None) -> str:
+        raise NotImplementedError(f"{self.name} does not implement generate_text")
 
     async def close(self) -> None:
         pass

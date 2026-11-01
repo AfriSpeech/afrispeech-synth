@@ -329,6 +329,31 @@ afrispeech-synth samples --all-voices             # the full matrix
 afrispeech-synth samples --all-voices --distinct  # a different sentence per voice
 ```
 
+### Text generation
+
+Generate text directly through Gemini or the Gemini Live API:
+
+```bash
+# Via CLI
+afrispeech-synth text "Translate this English sentence to Twi: Good morning, how are you?"
+afrispeech-synth text --backend gemini-live --model gemini-3.8-live "Provide 10 search queries for Ghana"
+
+# Or pipe in via stdin
+echo "List 5 historical landmarks in Accra" | afrispeech-synth text
+```
+
+```python
+# In Python
+from afrispeech_synth import generate_text
+
+response = generate_text(
+    "Provide 10 realistic search queries about Ghana",
+    backend="gemini-live",
+    model="gemini-3.8-live",
+)
+print(response)
+```
+
 ### One stage at a time
 
 ```bash

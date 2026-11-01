@@ -135,6 +135,7 @@ class GeminiLiveTTS(TTSBackend):
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
                 )
             ),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
         )
         instruction = getattr(self.config, "system_instruction", None)
         if instruction:
@@ -225,7 +226,7 @@ class GeminiLiveTTS(TTSBackend):
     async def synth(self, text: str, voice: str) -> Clip:
         entry = await self._acquire(voice)
         try:
-            pcm, _, mime = await self._turn(entry.session, text)
+            pcm, spoken, mime = await self._turn(entry.session, text)
             entry.turns += 1
         except Exception as exc:
             # A broken turn can leave the socket unusable, so the session is
@@ -243,7 +244,23 @@ class GeminiLiveTTS(TTSBackend):
         wav = pcm_to_wav(pcm, mime, default_rate=LIVE_RATE)
         # The rate the response actually declared, not the one assumed above.
         rate = wav_sample_rate(wav) or LIVE_RATE
-        return Clip(audio=wav, mime_type="audio/wav", sample_rate=rate, voice=voice)
+        return Clip(audio=wav, mime_type="audio/wav", sample_rate=rate, voice=voice, text=spoken)
+
+    async def generate_text(self, prompt: str, voice: Optional[str] = None) -> str:
+        entry = await self._acquire(voice or self.config.voice)
+        try:
+            _, spoken, _ = await self._turn(entry.session, prompt)
+            entry.turns += 1
+        except Exception as exc:
+            await self._release(entry, reusable=False)
+            raise self._wrap(exc) from exc
+
+        if not spoken:
+            await self._release(entry, reusable=False)
+            raise RetryableTTSError("model returned no text")
+
+        await self._release(entry, reusable=True)
+        return spoken
 
     def describe(self) -> str:
         return f"{self.name} ({self._model_label})"
