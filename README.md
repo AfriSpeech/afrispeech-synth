@@ -194,6 +194,27 @@ rather than reads — the exact behaviour the system instruction exists to preve
 A model outside this list still runs; the backend just notes that it has not been checked
 on African languages.
 
+**Live quotas: sessions, not just tokens.** A Live session is a websocket whose voice is
+fixed when it connects, and Google limits how many sessions a project can hold open at
+once. The backend therefore keeps at most `tts.concurrency` sessions open, closing an idle
+session of another voice before opening a new one, and the runner processes clips grouped
+by voice so sessions are reused. Before this, rotating through many voices left one idle
+session per voice open, and every connect past the project's session limit failed with
+`1011 … exceeded your current quota` even though the key's token and request quotas were
+barely touched. If you see that error with tokens to spare, lower `tts.concurrency`.
+
+What worked on free-tier keys (Nov 2026, ten Ghanaian languages):
+
+| | |
+|---|---|
+| `tts.concurrency` | **3** per key: 240/240 clips, no quota errors, ~10 clips/min per key |
+| Several keys | one process per key; keys from different Google Cloud projects have separate quotas |
+| Token quota | differs per model: the quota page showed 1M tokens/min for 2.5 Flash Native Audio and 65K for 3 Flash Live and 3.8 Live |
+| Speaking rate | vs real readers of the same languages, 20 sentences each: 2.5 Native Audio 0.76× (slow), 3 Flash Live 1.04×, 3.8 Live 0.93× with 6 of 20 outside 0.6–1.6× |
+
+The standard TTS backend (`gemini`) on the free tier is limited to 3 requests per minute
+per project, so a dataset of any size needs the Live backend or a paid tier.
+
 **What the audio is.** Clips are written exactly as the API returns them — this tool does
 no resampling, no re-encoding and no format conversion. Both Gemini backends return the
 same thing:

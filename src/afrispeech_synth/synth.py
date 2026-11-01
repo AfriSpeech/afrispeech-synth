@@ -190,6 +190,11 @@ async def synthesise_async(utterances: Sequence[Utterance], config, language: La
     if not pending:
         return {"done": 0, "failed": 0, "skipped": skipped, "workspace": workspace}
 
+    # Group utterances by voice. A Live session's voice is fixed when it connects,
+    # so processing one voice at a time reuses sessions instead of reconnecting for
+    # almost every clip under a rotation. Harmless for request/response backends.
+    pending.sort(key=lambda u: u.voice or config.voice)   # same rule as _one()
+
     backend = tts_registry.get_backend(config.backend, config, language)
     print(f"  backend: {backend.describe()}, voice={config.voice}, "
           f"concurrency={config.concurrency}, rpm={config.rpm}", flush=True)

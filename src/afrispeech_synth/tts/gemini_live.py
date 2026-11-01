@@ -14,6 +14,12 @@ Two things shape the implementation:
 * **A session's voice is fixed when it connects.** The runner rotates voices
   per utterance, so the pool is keyed by voice — asking for Puck never gets
   handed back a Zephyr session.
+* **Open sessions are capped at `tts.concurrency`.** Projects have a quota on
+  concurrent Live sessions. An uncapped per-voice pool grows with every voice in
+  the rotation (idle Zephyr, Puck, Kore… sessions all stay open), and once it
+  passes the quota every connect fails with `1011 … exceeded your current
+  quota` — on a key whose token and request quotas are nowhere near used. When
+  the cap is reached, an idle session of another voice is closed first.
 
 Sessions are also recycled every `session_turns` utterances: the Live API keeps
 the whole turn history in context, so a long-lived session slows down and
@@ -114,6 +120,9 @@ class GeminiLiveTTS(TTSBackend):
         self._idle: Dict[str, List[_Session]] = {}
         self._open: List[_Session] = []
         self._lock = asyncio.Lock()
+        # At most this many websockets are open at once (busy + idle). Busy ones
+        # are already bounded by the runner's semaphore at `concurrency`.
+        self._max_open = max(1, int(getattr(config, "concurrency", 1) or 1))
 
     # ------------------------------------------------------------------ config
 
@@ -140,10 +149,19 @@ class GeminiLiveTTS(TTSBackend):
     # ------------------------------------------------------------------- pool
 
     async def _acquire(self, voice: str) -> _Session:
+        evict = None
         async with self._lock:
             pool = self._idle.get(voice)
             if pool:
                 return pool.pop()
+            if len(self._open) >= self._max_open:
+                # Make room by retiring an idle session of another voice, so the
+                # number of open sockets never exceeds the cap.
+                evict = self._pop_idle_other(voice)
+                if evict is not None and evict in self._open:
+                    self._open.remove(evict)
+        if evict is not None:
+            await evict.close()
         try:
             ctx = self._client.aio.live.connect(
                 model=self.config.model, config=self._connect_config(voice))
@@ -153,6 +171,13 @@ class GeminiLiveTTS(TTSBackend):
         async with self._lock:
             self._open.append(entry)
         return entry
+
+    def _pop_idle_other(self, voice: str) -> Optional[_Session]:
+        """Take one idle session whose voice differs from `voice` (lock held)."""
+        for other, pool in self._idle.items():
+            if other != voice and pool:
+                return pool.pop(0)       # oldest first
+        return None
 
     async def _release(self, entry: _Session, reusable: bool) -> None:
         limit = getattr(self.config, "session_turns", 25)
