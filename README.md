@@ -354,6 +354,22 @@ response = generate_text(
 print(response)
 ```
 
+### Audio transcription
+
+Transcribe audio in real-time using the Gemini Live API (`models/gemini-3.5-transcribe-live`) with automatic BCP-47 language hint resolution across African languages:
+
+```bash
+# Via CLI
+afrispeech-synth transcribe audio.wav --lang twi
+afrispeech-synth transcribe audio.wav --lang yoruba --stream
+
+# In Python
+from afrispeech_synth import transcribe_audio
+
+transcript = transcribe_audio("audio.wav", language="twi")
+print(transcript)
+```
+
 ### One stage at a time
 
 ```bash

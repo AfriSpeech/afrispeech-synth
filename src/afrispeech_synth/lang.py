@@ -12,7 +12,7 @@ libraries, which still works whenever the user already typed a valid code.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import List, Optional, Union
 
 try:  # pragma: no cover - exercised by whichever env the user has
     import afriso as _afriso
@@ -163,3 +163,133 @@ def require_g2p(language: Language) -> str:
             f"table at https://github.com/AfriSpeech/africa-g2p"
         )
     return language.g2p_code
+
+
+# BCP-47 language hints for Gemini Live transcription across African and common languages
+_TRANSCRIBE_LANGUAGE_MAP: dict[str, list[str]] = {
+    # Akan / Twi / Fante
+    "aka": ["ak-GH", "ak", "tw"],
+    "twi": ["ak-GH", "ak", "tw"],
+    "fat": ["ak-GH", "ak"],
+    # Yoruba
+    "yor": ["yo-NG", "yo"],
+    # Hausa
+    "hau": ["ha-NG", "ha-NE", "ha"],
+    # Igbo
+    "ibo": ["ig-NG", "ig"],
+    "igb": ["ig-NG", "ig"],
+    # Swahili
+    "swh": ["sw-KE", "sw-TZ", "sw"],
+    "swa": ["sw-KE", "sw-TZ", "sw"],
+    "swc": ["sw-CD", "sw"],
+    # Amharic
+    "amh": ["am-ET", "am"],
+    # Zulu
+    "zul": ["zu-ZA", "zu"],
+    # Xhosa
+    "xho": ["xh-ZA", "xh"],
+    # Somali
+    "som": ["so-SO", "so-KE", "so-ET", "so"],
+    # Oromo
+    "orm": ["om-ET", "om"],
+    "gaz": ["om-ET", "om"],
+    "gax": ["om-ET", "om"],
+    # Lingala
+    "lin": ["ln-CD", "ln-CG", "ln"],
+    # Luganda
+    "lug": ["lg-UG", "lg"],
+    # Wolof
+    "wol": ["wo-SN", "wo"],
+    # Shona
+    "sna": ["sn-ZW", "sn"],
+    # Kinyarwanda
+    "kin": ["rw-RW", "rw"],
+    # Kirundi
+    "run": ["rn-BI", "rn"],
+    # Sesotho
+    "sot": ["st-ZA", "st-LS", "st"],
+    # Setswana
+    "tsn": ["tn-ZA", "tn-BW", "tn"],
+    # Xitsonga
+    "tso": ["ts-ZA", "ts-MZ", "ts"],
+    # Siswati
+    "ssw": ["ss-ZA", "ss-SZ", "ss"],
+    # Tshivenda
+    "ven": ["ve-ZA", "ve"],
+    # Southern Ndebele
+    "nbl": ["nr-ZA", "nr"],
+    # Northern Ndebele
+    "nde": ["nd-ZW", "nd"],
+    # Chichewa / Nyanja
+    "nya": ["ny-MW", "ny-ZM", "ny"],
+    # Bambara
+    "bam": ["bm-ML", "bm"],
+    # Fula / Fulfulde
+    "ful": ["ff-SN", "ff-NG", "ff"],
+    "fuv": ["ff-NG", "ff"],
+    "fub": ["ff-CM", "ff"],
+    "ffm": ["ff-ML", "ff"],
+    # Ewe
+    "ewe": ["ee-GH", "ee-TG", "ee"],
+    # Fon
+    "fon": ["fon-BJ", "fon"],
+    # Ga
+    "gaa": ["gaa-GH", "gaa"],
+    # Dagbani
+    "dag": ["dag-GH", "dag"],
+    # Moore / Mossi
+    "mos": ["mos-BF", "mos"],
+    # Tigrinya
+    "tir": ["ti-ET", "ti-ER", "ti"],
+    # Malagasy
+    "mlg": ["mg-MG", "mg"],
+    "plt": ["mg-MG", "mg"],
+    # Afrikaans
+    "afr": ["af-ZA", "af"],
+    # Arabic
+    "ara": ["ar-EG", "ar"],
+    # English
+    "eng": ["en-GH", "en-NG", "en-ZA", "en-KE", "en-US", "en-GB", "en"],
+    # Liberian English / Pidgin
+    "lir": ["en-LR", "en"],
+    # French
+    "fra": ["fr-SN", "fr-CI", "fr-CD", "fr-CM", "fr-FR", "fr"],
+    # Portuguese
+    "por": ["pt-AO", "pt-MZ", "pt-PT", "pt"],
+}
+
+
+def resolve_transcribe_language_codes(language: Union[str, Language], limit: int = 4) -> List[str]:
+    """Resolve a language into BCP-47 candidate codes for Live transcription.
+
+    Gemini Live API's AudioTranscriptionConfig accepts BCP-47 language hints. Providing
+    the regional codes (e.g. `ak-GH`, `yo-NG`) prevents phonetic confusion with other
+    languages in multi-lingual models.
+    """
+    if isinstance(language, str):
+        try:
+            lang = resolve(language)
+        except Exception:
+            lang = Language(token=language, code=language.lower().strip(), name=language)
+    else:
+        lang = language
+
+    codes: List[str] = []
+    # Check table by ISO 639-3, original token, or g2p code
+    for key in (lang.code, lang.token.lower(), getattr(lang, "g2p_code", None)):
+        if key and key in _TRANSCRIBE_LANGUAGE_MAP:
+            for c in _TRANSCRIBE_LANGUAGE_MAP[key]:
+                if c not in codes:
+                    codes.append(c)
+
+    # Add country-qualified ISO codes where countries are known
+    for country in getattr(lang, "countries", ()) or ():
+        candidate = f"{lang.code}-{country}"
+        if candidate not in codes:
+            codes.append(candidate)
+
+    # Always include the bare code if not already present
+    if lang.code not in codes:
+        codes.append(lang.code)
+
+    return codes[:limit]

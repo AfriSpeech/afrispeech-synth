@@ -171,6 +171,24 @@ async def _one(utterance: Utterance, backend, workspace: Workspace, limiter: Rat
             }
             if clip.text:
                 record["transcript_spoken"] = clip.text
+            if getattr(config, "transcribe", False):
+                from .transcribe import transcribe_audio_async
+                try:
+                    asr_lang = utterance.language or language
+                    transcribed = await transcribe_audio_async(
+                        clip.audio,
+                        language=asr_lang,
+                        model=getattr(config, "transcribe_model", "models/gemini-3.5-transcribe-live"),
+                        custom_vocabulary=[utterance.transcript],
+                        backend=getattr(config, "backend", None) if getattr(config, "backend", None) == "mock" else None,
+                        api_key_env=getattr(config, "api_key_env", "GEMINI_API_KEY"),
+                    )
+                    if transcribed:
+                        record["transcript_transcribed"] = transcribed
+                        if not record.get("transcript_spoken"):
+                            record["transcript_spoken"] = transcribed
+                except Exception as exc:
+                    print(f"[{utterance.index}] live transcription warning: {exc}", flush=True)
             workspace.write(utterance, record)
             counters["done"] += 1
             total = counters["total"]

@@ -12,6 +12,7 @@ from .normalise import Normaliser
 from .pipeline import run, stage_sources, stage_select, stage_synthesise, stage_package
 from .select import Selection
 from .text import generate_text, generate_text_async
+from .transcribe import transcribe_audio, transcribe_audio_async, resolve_transcribe_language_codes
 
 __version__ = "0.1.0"
 
@@ -21,5 +22,6 @@ __all__ = [
     "stage_sources", "stage_select", "stage_synthesise", "stage_package",
     "Language", "LanguageNotSupported", "resolve", "Normaliser", "Selection",
     "generate_text", "generate_text_async",
+    "transcribe_audio", "transcribe_audio_async", "resolve_transcribe_language_codes",
     "__version__",
 ]

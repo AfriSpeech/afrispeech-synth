@@ -50,6 +50,10 @@ def _config_from_args(args) -> config_module.RunConfig:
         overrides["tts.voice"] = args.voice.strip()
     if getattr(args, "voices", None):
         overrides["tts.voices"] = [v.strip() for v in args.voices.split(",") if v.strip()]
+    if getattr(args, "transcribe", False):
+        overrides["tts.transcribe"] = True
+    if getattr(args, "transcribe_model", None):
+        overrides["tts.transcribe_model"] = args.transcribe_model
     if getattr(args, "source", None):
         config.sources = list(args.source)
     if getattr(args, "format", None):
@@ -142,6 +146,41 @@ def cmd_text(args) -> int:
     return 0
 
 
+def cmd_transcribe(args) -> int:
+    from .transcribe import transcribe_audio
+    audio_path = args.audio
+    if not os.path.exists(audio_path):
+        print(f"error: audio file not found: {audio_path}", file=sys.stderr)
+        return 1
+
+    vocab = [v.strip() for v in args.vocab.split(",") if v.strip()] if getattr(args, "vocab", None) else None
+    codes = [c.strip() for c in args.langs.split(",") if c.strip()] if getattr(args, "langs", None) else None
+    config = _config_from_args(args) if getattr(args, "config", None) else None
+    backend = getattr(args, "backend", None)
+
+    on_interim = None
+    if getattr(args, "stream", False):
+        def _on_interim(text: str):
+            print(f"\r{text}", end="", flush=True)
+        on_interim = _on_interim
+
+    result = transcribe_audio(
+        audio=audio_path,
+        language=getattr(args, "lang", None),
+        language_codes=codes,
+        model=getattr(args, "model", None) or "models/gemini-3.5-transcribe-live",
+        custom_vocabulary=vocab,
+        mode=getattr(args, "mode", None),
+        config=config,
+        backend=backend,
+        on_interim=on_interim,
+    )
+    if on_interim:
+        print()
+    print(result)
+    return 0
+
+
 STATUS_HELP = {
     "ready": "text + G2P available — just name the language",
     "bring text": "G2P available; supply text with a file: or hf: source",
@@ -228,6 +267,7 @@ def cmd_models(args) -> int:
         print(f"   {'':46s} {'':10s} {model.note}")
     print("\n  * default. Probe = one sentence in each of Twi, Ewe, Dagbani, Ga and "
           "Hausa,\n    scored against what the model said it spoke.", file=sys.stderr)
+    print("  The Live transcription model is models/gemini-3.5-transcribe-live.", file=sys.stderr)
     print("  The TTS backend (`tts.backend: gemini`) is separate: "
           "gemini-3.1-flash-tts-preview.", file=sys.stderr)
     return 0
@@ -295,6 +335,8 @@ def build_parser() -> argparse.ArgumentParser:
                             help="Select sentences and stop, without calling the TTS API")
     run_parser.add_argument("--no-resume", action="store_true",
                             help="Ignore existing work and start over")
+    run_parser.add_argument("--transcribe", action="store_true",
+                            help="Transcribe synthesised clips with the Live Transcribe API")
     run_parser.set_defaults(func=cmd_run)
 
     add_common(subparsers.add_parser("select", help="Source + select sentences only")
@@ -302,6 +344,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     synth_parser = add_common(subparsers.add_parser("synth", help="Synthesise selected sentences"))
     synth_parser.add_argument("--no-resume", action="store_true")
+    synth_parser.add_argument("--transcribe", action="store_true",
+                              help="Transcribe synthesised clips with the Live Transcribe API")
     synth_parser.set_defaults(func=cmd_synth)
 
     add_common(subparsers.add_parser("package", help="Build parquet + manifest + card")
@@ -319,6 +363,20 @@ def build_parser() -> argparse.ArgumentParser:
     text_parser.add_argument("--model", help="Model name (e.g. gemini-3.8-live, gemini-3.1-flash-live-preview)")
     text_parser.add_argument("--voice", help="Voice for Live session (default: Zephyr)")
     text_parser.set_defaults(func=cmd_text)
+
+    transcribe_parser = subparsers.add_parser(
+        "transcribe", help="Transcribe audio in real-time using Gemini Live API")
+    transcribe_parser.add_argument("audio", help="Path to WAV audio file")
+    transcribe_parser.add_argument("--lang", help="Language name or code (e.g. twi, yoruba, swahili)")
+    transcribe_parser.add_argument("--langs", help="Comma-separated BCP-47 language codes override (e.g. ak-GH,ak)")
+    transcribe_parser.add_argument("--model", default="models/gemini-3.5-transcribe-live",
+                                   help="Gemini Live model (must be a live model, default: models/gemini-3.5-transcribe-live)")
+    transcribe_parser.add_argument("--vocab", help="Comma-separated custom vocabulary phrases")
+    transcribe_parser.add_argument("--mode", choices=["verbatim", "smart"], default="verbatim")
+    transcribe_parser.add_argument("--stream", action="store_true", help="Print interim transcript updates in real-time")
+    transcribe_parser.add_argument("--config", help="Optional YAML config")
+    transcribe_parser.add_argument("--backend", choices=tts_registry.available(), help=argparse.SUPPRESS)
+    transcribe_parser.set_defaults(func=cmd_transcribe)
 
     init_parser = subparsers.add_parser("init", help="Write a starter config for a language")
     init_parser.add_argument("lang", help="Language name or code")

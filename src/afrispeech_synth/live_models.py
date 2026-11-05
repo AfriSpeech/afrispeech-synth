@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Dict, List, NamedTuple
 
 DEFAULT = "models/gemini-3.1-flash-live-preview"
+DEFAULT_TRANSCRIBE = "models/gemini-3.5-transcribe-live"
 
 
 class LiveModel(NamedTuple):

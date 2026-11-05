@@ -262,6 +262,15 @@ class GeminiLiveTTS(TTSBackend):
         await self._release(entry, reusable=True)
         return spoken
 
+    async def transcribe(self, audio: bytes, sample_rate: Optional[int] = None) -> str:
+        from ..transcribe import transcribe_audio_async
+        return await transcribe_audio_async(
+            audio,
+            language=self.language,
+            model=getattr(self.config, "transcribe_model", "models/gemini-3.5-transcribe-live"),
+            api_key_env=self.config.api_key_env,
+        )
+
     def describe(self) -> str:
         return f"{self.name} ({self._model_label})"
 

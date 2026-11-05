@@ -77,6 +77,9 @@ class TTSBackend:
     async def generate_text(self, prompt: str, voice: Optional[str] = None) -> str:
         raise NotImplementedError(f"{self.name} does not implement generate_text")
 
+    async def transcribe(self, audio: bytes, sample_rate: Optional[int] = None) -> str:
+        raise NotImplementedError(f"{self.name} does not implement transcribe")
+
     async def close(self) -> None:
         pass
 

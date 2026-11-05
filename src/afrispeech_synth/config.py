@@ -69,6 +69,10 @@ class TTSConfig:
     session_turns: int = 25
     # Required by gemini-3.8-live-extended-thinking, ignored by other models.
     thinking_level: Optional[str] = None
+    # Live transcription: transcribe synthesised audio with the Live Transcribe API.
+    # Must be a Gemini Live model.
+    transcribe: bool = False
+    transcribe_model: str = "models/gemini-3.5-transcribe-live"
 
 
 @dataclass

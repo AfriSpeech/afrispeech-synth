@@ -22,5 +22,8 @@ class MockTTS(TTSBackend):
     async def generate_text(self, prompt: str, voice: str = "Zephyr") -> str:
         return f"Mock text response for: {prompt}"
 
+    async def transcribe(self, audio: bytes, sample_rate: int = 24000) -> str:
+        return f"Mock transcript for audio ({len(audio)} bytes)"
+
 
 tts_registry.register("mock", lambda: MockTTS)
