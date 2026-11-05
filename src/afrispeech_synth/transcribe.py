@@ -126,6 +126,38 @@ def read_audio_pcm(
     raise TypeError(f"Unsupported audio input type: {type(audio)}")
 
 
+def chunk_audio_pcm(pcm: bytes, rate: int = DEFAULT_SAMPLE_RATE, max_chunk_sec: float = 480.0) -> List[Tuple[bytes, float, float]]:
+    """Split long PCM audio into chunks <= max_chunk_sec (default: 8 minutes) at natural silence boundaries."""
+    bytes_per_sec = rate * 2
+    chunk_bytes = int(max_chunk_sec * bytes_per_sec)
+    if len(pcm) <= chunk_bytes:
+        return [(pcm, 0.0, len(pcm) / bytes_per_sec)]
+
+    chunks = []
+    start = 0
+    while start < len(pcm):
+        end = min(start + chunk_bytes, len(pcm))
+        if end < len(pcm):
+            # Look backwards up to 5 seconds for lowest energy window to split at natural pause
+            search_window = min(int(5.0 * bytes_per_sec), end - start)
+            window = pcm[end - search_window : end]
+            step = int(0.1 * bytes_per_sec)
+            min_energy = float("inf")
+            best_split = end
+            for i in range(0, len(window) - step, step):
+                chunk_slice = window[i : i + step]
+                energy = sum(abs(struct.unpack_from("<h", chunk_slice, j)[0]) for j in range(0, len(chunk_slice), 2))
+                if energy < min_energy:
+                    min_energy = energy
+                    best_split = end - search_window + i
+            end = best_split
+
+        chunks.append((pcm[start:end], start / bytes_per_sec, end / bytes_per_sec))
+        start = end
+
+    return chunks
+
+
 async def transcribe_audio_async(
     audio: Union[str, os.PathLike, bytes, bytearray, io.IOBase],
     language: Optional[Union[str, Language]] = None,
@@ -223,51 +255,62 @@ async def transcribe_audio_async(
     )
 
     raw_pcm, rate = read_audio_pcm(audio)
-    duration = len(raw_pcm) / (rate * 2) if rate else 0
-    effective_timeout = max(timeout, duration + 30.0)
     client = genai.Client(api_key=api_key)
+    chunks = chunk_audio_pcm(raw_pcm, rate=rate, max_chunk_sec=480.0)
 
-    async with client.aio.live.connect(model=resolved_model, config=connect_config) as session:
-        chunk_size = int(rate * 2 * 0.1)
-        audio_done = asyncio.Event()
+    async def _stream_one_pcm_chunk(pcm_chunk: bytes) -> str:
+        chunk_duration = len(pcm_chunk) / (rate * 2) if rate else 0
+        effective_timeout = max(timeout, chunk_duration + 30.0)
 
-        async def _send_audio():
-            for i in range(0, len(raw_pcm), chunk_size):
-                chunk = raw_pcm[i : i + chunk_size]
-                await session.send_realtime_input(
-                    audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={rate}")
-                )
-                await asyncio.sleep(0.01)
-            await session.send_realtime_input(audio_stream_end=True)
-            audio_done.set()
+        async with client.aio.live.connect(model=resolved_model, config=connect_config) as session:
+            chunk_size = int(rate * 2 * 0.1)
+            audio_done = asyncio.Event()
 
-        transcript_parts: List[str] = []
+            async def _send_audio():
+                for i in range(0, len(pcm_chunk), chunk_size):
+                    chunk = pcm_chunk[i : i + chunk_size]
+                    await session.send_realtime_input(
+                        audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={rate}")
+                    )
+                    await asyncio.sleep(0.01)
+                await session.send_realtime_input(audio_stream_end=True)
+                audio_done.set()
 
-        async def _listen():
-            async for msg in session.receive():
-                sc = msg.server_content
-                if not sc:
-                    continue
-                if (
-                    on_interim
-                    and sc.interim_input_transcription
-                    and sc.interim_input_transcription.text
-                ):
-                    on_interim(sc.interim_input_transcription.text)
-                if sc.input_transcription and sc.input_transcription.text:
-                    transcript_parts.append(sc.input_transcription.text)
-                if audio_done.is_set() and (sc.generation_complete or sc.turn_complete):
-                    break
+            transcript_parts: List[str] = []
 
-        sender_task = asyncio.create_task(_send_audio())
-        listener_task = asyncio.create_task(_listen())
-        try:
-            await asyncio.wait_for(asyncio.gather(sender_task, listener_task), timeout=effective_timeout)
-        except asyncio.TimeoutError:
-            sender_task.cancel()
-            listener_task.cancel()
+            async def _listen():
+                async for msg in session.receive():
+                    sc = msg.server_content
+                    if not sc:
+                        continue
+                    if (
+                        on_interim
+                        and sc.interim_input_transcription
+                        and sc.interim_input_transcription.text
+                    ):
+                        on_interim(sc.interim_input_transcription.text)
+                    if sc.input_transcription and sc.input_transcription.text:
+                        transcript_parts.append(sc.input_transcription.text)
+                    if audio_done.is_set() and (sc.generation_complete or sc.turn_complete):
+                        break
 
-        return " ".join(transcript_parts).strip()
+            sender_task = asyncio.create_task(_send_audio())
+            listener_task = asyncio.create_task(_listen())
+            try:
+                await asyncio.wait_for(asyncio.gather(sender_task, listener_task), timeout=effective_timeout)
+            except asyncio.TimeoutError:
+                sender_task.cancel()
+                listener_task.cancel()
+
+            return " ".join(transcript_parts).strip()
+
+    results: List[str] = []
+    for pcm_chunk, _, _ in chunks:
+        res = await _stream_one_pcm_chunk(pcm_chunk)
+        if res:
+            results.append(res)
+
+    return " ".join(results).strip()
 
 
 def transcribe_audio(
